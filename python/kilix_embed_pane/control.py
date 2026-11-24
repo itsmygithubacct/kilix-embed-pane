@@ -1,0 +1,191 @@
+"""Asking the Kilix engine for embedded windows and sending them input.
+
+Launching, resizing, closing and reading text are rare and go through the
+engine's ``kitten @`` command with whatever credential the caller has
+(Kilix's remote-control password file). Input is frequent and goes over one
+long-lived connection to the engine's socket as ``embed-input`` commands
+that carry the window's token and ask for no response.
+"""
+
+import base64
+import json
+import os
+import shutil
+import socket
+import subprocess
+from dataclasses import dataclass
+from typing import Iterable, Mapping, Sequence
+
+PREFIX, SUFFIX = b'\x1bP@kitty-cmd', b'\x1b\\'
+# Kilix's engine accepts a command from any older protocol version.
+PROTOCOL_VERSION = [0, 14, 0]
+MAX_EVENT_ARGS = 66
+
+
+class EmbedError(Exception):
+    pass
+
+
+@dataclass
+class EmbeddedWindow:
+    id: int
+    token: str
+    map: str
+    cols: int
+    rows: int
+    cell_width: int = 0
+    cell_height: int = 0
+    pid: int = 0
+
+    @classmethod
+    def from_response(cls, data: Mapping, token: str | None = None) -> 'EmbeddedWindow':
+        try:
+            return cls(int(data['id']), str(token if token is not None else data['token']), str(data['map']),
+                       int(data['cols']), int(data['rows']), int(data.get('cell_width') or 0),
+                       int(data.get('cell_height') or 0), int(data.get('pid') or 0))
+        except (KeyError, TypeError, ValueError) as e:
+            raise EmbedError(f'Unexpected answer from the engine: {e}') from None
+
+    @property
+    def match(self) -> str:
+        return f'id:{self.id}'
+
+
+def encode_command(cmd: str, payload: Mapping, no_response: bool = True) -> bytes:
+    body = {'cmd': cmd, 'version': PROTOCOL_VERSION, 'no_response': no_response, 'payload': dict(payload)}
+    return PREFIX + json.dumps(body, separators=(',', ':'), ensure_ascii=True).encode('ascii') + SUFFIX
+
+
+def socket_address(listen_on: str):
+    """unix:/path or unix:@abstract, as KITTY_LISTEN_ON names them."""
+    if not listen_on.startswith('unix:'):
+        raise EmbedError('Only unix sockets are supported')
+    name = listen_on[5:]
+    if not name:
+        raise EmbedError('Empty socket name')
+    return '\0' + name[1:] if name.startswith('@') else name
+
+
+class InputConnection:
+    """One socket connection to the engine for embed-input. send() never
+    waits for an answer; a failed write reconnects once and retries."""
+
+    def __init__(self, listen_on: str, timeout: float = 2.0) -> None:
+        self.address = socket_address(listen_on)
+        self.timeout = timeout
+        self.sock: socket.socket | None = None
+
+    def _connect(self) -> socket.socket:
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM | socket.SOCK_CLOEXEC)
+        s.settimeout(self.timeout)
+        try:
+            s.connect(self.address)
+        except OSError:
+            s.close()
+            raise
+        return s
+
+    def send(self, window: EmbeddedWindow, event: Sequence[str], mods: int = 0) -> None:
+        if not event or len(event) > MAX_EVENT_ARGS or not all(isinstance(x, str) for x in event):
+            raise EmbedError('An event is a kind and up to 65 string arguments')
+        data = encode_command('embed-input', {
+            'match': window.match, 'token': window.token, 'mods': int(mods), 'event': list(event)})
+        for attempt in (0, 1):
+            try:
+                if self.sock is None:
+                    self.sock = self._connect()
+                self.sock.sendall(data)
+                return
+            except OSError as e:
+                self.close()
+                if attempt:
+                    raise EmbedError(f'Cannot reach the engine: {e}') from None
+
+    def send_bytes(self, window: EmbeddedWindow, data: bytes) -> None:
+        for at in range(0, len(data), 48 * 1024):
+            self.send(window, ['bytes', base64.b64encode(data[at:at + 48 * 1024]).decode('ascii')])
+
+    def close(self) -> None:
+        if self.sock is not None:
+            try:
+                self.sock.close()
+            finally:
+                self.sock = None
+
+
+class Engine:
+    """The engine's ``kitten @`` with the caller's credential."""
+
+    def __init__(self, listen_on: str, kitten: str = 'kitten', password_file: str | None = None,
+                 env: Mapping[str, str] | None = None, timeout: float = 15.0) -> None:
+        socket_address(listen_on)
+        self.listen_on, self.kitten, self.password_file = listen_on, kitten, password_file
+        self.env, self.timeout = env, timeout
+
+    @classmethod
+    def from_environment(cls, environ: Mapping[str, str] | None = None) -> 'Engine':
+        env = os.environ if environ is None else environ
+        listen_on = env.get('KITTY_LISTEN_ON') or ''
+        if not listen_on:
+            raise EmbedError('Not inside a Kilix window (no KITTY_LISTEN_ON)')
+        kitten = env.get('KILIX_KITTEN') or ''
+        if not kitten:
+            launcher = env.get('KITTY_INSTALLATION_DIR')
+            candidate = os.path.join(launcher, 'kitty', 'launcher', 'kitten') if launcher else ''
+            kitten = candidate if candidate and os.access(candidate, os.X_OK) else (shutil.which('kitten') or 'kitten')
+        return cls(listen_on, kitten, env.get('KILIX_RC_PASSWORD_FILE') or None, dict(env))
+
+    def run(self, *args: str) -> str:
+        argv = [self.kitten, '@', '--to', self.listen_on]
+        if self.password_file:
+            argv += ['--password-file', self.password_file]
+        try:
+            p = subprocess.run([*argv, *args], stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                               timeout=self.timeout, env=None if self.env is None else dict(self.env))
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise EmbedError(f'kitten @ {args[0]} failed: {e}') from None
+        if p.returncode:
+            raise EmbedError(f'kitten @ {args[0]} failed: {(p.stderr or p.stdout).strip()[-400:]}')
+        return p.stdout
+
+    def launch(self, argv: Sequence[str], cols: int, rows: int, cell_size: tuple[int, int] | None = None,
+               env: Iterable[str] = (), cwd: str | None = None, title: str | None = None) -> EmbeddedWindow:
+        args = ['launch', '--type=embed', f'--embed-size={int(cols)}x{int(rows)}']
+        if cell_size:
+            args.append(f'--embed-cell-size={int(cell_size[0])}x{int(cell_size[1])}')
+        for item in env:
+            args += ['--env', item]
+        if cwd:
+            args.append(f'--cwd={cwd}')
+        if title:
+            args.append(f'--title={title}')
+        args += ['--', *argv]
+        try:
+            data = json.loads(self.run(*args))
+        except ValueError:
+            raise EmbedError('This Kilix engine does not support embedded windows') from None
+        if not isinstance(data, dict):
+            raise EmbedError('This Kilix engine does not support embedded windows')
+        return EmbeddedWindow.from_response(data)
+
+    def resize(self, window: EmbeddedWindow, cols: int, rows: int, cell_size: tuple[int, int] | None = None) -> None:
+        args = ['embed', '--match', window.match, '--token', window.token, f'--size={int(cols)}x{int(rows)}']
+        if cell_size:
+            args.append(f'--cell-size={int(cell_size[0])}x{int(cell_size[1])}')
+        data = json.loads(self.run(*args))
+        window.cols, window.rows = int(data['cols']), int(data['rows'])
+
+    def selection(self, window: EmbeddedWindow) -> str:
+        return self.run('get-text', '--match', window.match, '--extent', 'selection')
+
+    def close(self, window: EmbeddedWindow) -> None:
+        self.run('close-window', '--match', window.match, '--ignore-no-match')
+
+    def at_prompt(self, window: EmbeddedWindow) -> bool:
+        """Whether the shell in the window sits at its prompt (shell integration)."""
+        for osw in json.loads(self.run('ls', '--match', window.match)):
+            for tab in osw.get('tabs', ()):
+                for w in tab.get('windows', ()):
+                    if w.get('id') == window.id:
+                        return bool(w.get('at_prompt'))
+        return False

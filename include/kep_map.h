@@ -61,7 +61,9 @@ typedef struct kep_map_header {
     uint32_t reserved1;
     uint64_t frames;                /* frames written so far */
     uint32_t child_pid;
-    uint8_t reserved[256 - 116];
+    uint32_t title_len;             /* bytes of title used */
+    char title[128];                /* the window's title, UTF-8, never a split character */
+    uint8_t reserved[8];
 } kep_map_header;
 
 _Static_assert(sizeof(kep_map_header) == KEP_MAP_HEADER_SIZE, "kep_map_header is 256 bytes");
