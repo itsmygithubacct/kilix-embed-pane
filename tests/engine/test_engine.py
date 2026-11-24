@@ -79,6 +79,18 @@ class EngineTests(unittest.TestCase):
     def type(self, text):
         self.conn.send(self.win, ['text', text])
 
+    def test_supported_and_child_pid(self):
+        self.assertTrue(ENGINE.supported())
+        f = wait_for(self.reader, lambda f: f.child_pid > 0)
+        with open(f'/proc/{f.child_pid}/comm') as fh:
+            self.assertEqual(fh.read().strip(), 'bash')
+
+    def test_shift_wheel_scrolls_history_under_tracking(self):
+        self.type('seq 1 100; printf "\\033[?1000h"\r')
+        wait_for(self.reader, lambda f: f.mouse_tracking_mode >= 1)
+        self.conn.send(self.win, ['scroll', '5', '1', '1'], mods=1)
+        wait_for(self.reader, lambda f: f.view_offset == 5)
+
     def test_launch_answer_and_map_place(self):
         self.assertEqual((self.win.cols, self.win.rows), (50, 12))
         self.assertTrue(self.win.map.startswith(os.environ['KEP_RUNTIME']))

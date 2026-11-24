@@ -161,6 +161,16 @@ class Engine:
             raise EmbedError(f'kitten @ {args[0]} failed: {(p.stderr or p.stdout).strip()[-400:]}')
         return p.stdout
 
+    def supported(self) -> bool:
+        """Whether this engine has embedded windows: its own kitten knows
+        the embed command. Answered by the kitten alone, without the engine."""
+        try:
+            p = subprocess.run([self.kitten, '@', 'embed', '--help'], stdin=subprocess.DEVNULL,
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=self.timeout)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return p.returncode == 0
+
     def launch(self, argv: Sequence[str], cols: int, rows: int, cell_size: tuple[int, int] | None = None,
                env: Iterable[str] = (), cwd: str | None = None, title: str | None = None) -> EmbeddedWindow:
         args = ['launch', '--type=embed', f'--embed-size={int(cols)}x{int(rows)}']

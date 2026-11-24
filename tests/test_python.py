@@ -263,6 +263,13 @@ class EngineTests(unittest.TestCase):
         self.assertIn('--embed-cell-size=8x16', a)
         self.assertEqual(a[-3:], ['--', 'bash', '-l'])
 
+    def test_supported_asks_the_kitten_only(self):
+        with open(self.answer, 'w') as f:
+            f.write('')
+        self.assertTrue(kep.Engine('unix:@x', self.kitten).supported())
+        self.assertEqual(self.args(), ['@', 'embed', '--help'])
+        self.assertFalse(kep.Engine('unix:@x', os.path.join(self.dir.name, 'missing')).supported())
+
     def test_old_engine_answer(self):
         with open(self.answer, 'w') as f:
             f.write('12\n')

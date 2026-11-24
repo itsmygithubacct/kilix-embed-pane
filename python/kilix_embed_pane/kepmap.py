@@ -63,6 +63,7 @@ class Frame(NamedTuple):
     key_encoding_flags: int
     frames: int
     title: str
+    child_pid: int
 
 
 class MapReader:
@@ -134,7 +135,8 @@ class MapReader:
                 (h['cursor_x'], h['cursor_y'], h['cursor_shape'], bool(h['cursor_visible']),
                  bool(h['cursor_blink']), bool(h['cursor_focused']), h['cursor_color']),
                 h['modes'], h['mouse_tracking_mode'], h['mouse_tracking_protocol'], h['default_fg'],
-                h['default_bg'], h['history_rows'], h['view_offset'], h['key_encoding_flags'], h['frames'], title)
+                h['default_bg'], h['history_rows'], h['view_offset'], h['key_encoding_flags'], h['frames'], title,
+                h['child_pid'])
         raise MapError('The map kept changing while being read')
 
     def close(self) -> None:
