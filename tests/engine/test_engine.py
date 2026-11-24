@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.join(HERE, '..', '..', 'python'))
 import kilix_embed_pane as kep  # noqa: E402
 
 SOCK = os.environ['KEP_SOCK']
-ENGINE = kep.Engine(SOCK, os.environ['KEP_KITTEN'])
+ENGINE = kep.Engine(SOCK, os.environ['KEP_KITTEN'], os.environ.get('KEP_PASSWORD_FILE') or None)
 
 
 class CCell(C.Structure):
@@ -146,6 +146,17 @@ class EngineTests(unittest.TestCase):
                                       str(x * 8 + (2 if half else 6)), str(y * 16 + 8), str(half)])
         wait_for(self.reader, lambda f: any(c.attrs & kep.ATTR_SELECTED for c in f.cells))
         self.assertEqual(ENGINE.selection(self.win).strip(), 'pick-this-word')
+
+    @unittest.skipUnless(os.environ.get('KEP_PASSWORD_FILE'), 'only under the Kilix config')
+    def test_under_kilix_config_token_calls_need_no_password(self):
+        # Kilix accepts socket commands unconditionally (allow_remote_control
+        # socket); this proves the password-carrying launch above and the
+        # token-only resize and input both get through its real config.
+        bare = kep.Engine(SOCK, os.environ['KEP_KITTEN'])
+        bare.resize(self.win, 40, 10)
+        self.assertEqual((self.win.cols, self.win.rows), (40, 10))
+        self.type('stty size\r')
+        wait_for(self.reader, lambda f: '10 40' in rows_text(f))
 
     def test_map_removed_on_close(self):
         path = self.win.map

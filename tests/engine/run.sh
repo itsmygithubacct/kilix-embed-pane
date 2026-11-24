@@ -15,16 +15,41 @@ Xvfb "$DISP" -screen 0 1600x1000x24 -nolisten tcp >"$R/xvfb.log" 2>&1 &
 XPID=$!
 for _ in $(seq 100); do [ -S "/tmp/.X11-unix/X${DISP#:}" ] && break; sleep 0.1; done
 SOCK=unix:@kep-engine-$$
+# KILIX=<Kilix checkout>: run under Kilix's remote-control config: socket
+# control, the passwordless checker and the password list the launcher writes.
+CONF=(--config NONE -o allow_remote_control=yes)
+PWFILE=
+if [ -n "${KILIX:-}" ]; then
+    cp "$KILIX/config/kilix_rc_auth.py" "$R/config/"
+    PWFILE=$R/password; head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$PWFILE"; chmod 600 "$PWFILE"
+    list=$(sed -n 's/.*remote_control_password "%s" \(.*\) "%s".*/\1/p' "$KILIX/kilix" | head -1)
+    [ -n "$list" ] || { echo "cannot read Kilix's password list" >&2; kill "$XPID"; exit 2; }
+    { echo 'allow_remote_control socket'
+      echo 'remote_control_password "" kilix_rc_auth.py'
+      echo "remote_control_password \"$(cat "$PWFILE")\" $list"; } >"$R/config/kitty.conf"
+    CONF=(--config "$R/config/kitty.conf")
+fi
 env -i HOME="$HOME" PATH=/usr/bin:/bin DISPLAY="$DISP" TERM=xterm-256color \
     KITTY_CONFIG_DIRECTORY="$R/config" KITTY_RUNTIME_DIRECTORY="$R/runtime" KITTY_CACHE_DIRECTORY="$R/cache" \
     LIBGL_ALWAYS_SOFTWARE=1 \
-    "$ENGINE/kitty/launcher/kitty" --config NONE -o allow_remote_control=yes -o enable_audio_bell=no \
+    "$ENGINE/kitty/launcher/kitty" "${CONF[@]}" -o enable_audio_bell=no \
     -o shell_integration=disabled --listen-on "$SOCK" bash --norc >"$R/engine.log" 2>&1 &
 KPID=$!
 for _ in $(seq 150); do ss -xl 2>/dev/null | /usr/bin/grep -q "@kep-engine-$$" && break; sleep 0.1; done
 make -s -C "$MOD" BUILD="$R/build" "$R/build/libkilix-embed-pane.so" || { kill $KPID $XPID; exit 2; }
-KEP_SOCK=$SOCK KEP_KITTEN=$ENGINE/kitty/launcher/kitten KEP_LIB=$R/build/libkilix-embed-pane.so \
-    KEP_RUNTIME=$R/runtime python3 -I "$HERE/test_engine.py" ${KEP_TESTS:-}; rc=$?
+# The engine's public key, for password use, from its own first shell.
+PUB=
+for _ in $(seq 50); do
+    for c in $(cat /proc/$KPID/task/*/children 2>/dev/null); do
+        PUB=$(tr '\0' '\n' </proc/$c/environ 2>/dev/null | sed -n 's/^KITTY_PUBLIC_KEY=//p')
+        [ -n "$PUB" ] && break 2
+    done
+    sleep 0.1
+done
+env -i HOME="$HOME" PATH=/usr/bin:/bin TMPDIR="$R" KITTY_PUBLIC_KEY="$PUB" \
+    KEP_SOCK=$SOCK KEP_PASSWORD_FILE=$PWFILE KEP_KITTEN=$ENGINE/kitty/launcher/kitten \
+    KEP_LIB=$R/build/libkilix-embed-pane.so KEP_RUNTIME=$R/runtime \
+    python3 -I "$HERE/test_engine.py" ${KEP_TESTS:-}; rc=$?
 kill $KPID 2>/dev/null; wait $KPID 2>/dev/null
 kill $XPID 2>/dev/null; wait $XPID 2>/dev/null
 if [ $rc -ne 0 ]; then echo "--- engine log"; tail -20 "$R/engine.log"; echo "(kept $R)"; else rm -rf "$R"; fi

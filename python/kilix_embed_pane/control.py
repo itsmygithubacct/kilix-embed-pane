@@ -139,13 +139,22 @@ class Engine:
             kitten = candidate if candidate and os.access(candidate, os.X_OK) else (shutil.which('kitten') or 'kitten')
         return cls(listen_on, kitten, env.get('KILIX_RC_PASSWORD_FILE') or None, dict(env))
 
-    def run(self, *args: str) -> str:
+    def run(self, *args: str, password: bool = True) -> str:
+        """kitten @ ARGS. Commands that carry the window's token (embed, and
+        embed-input on the InputConnection) go without the password
+        (password=False): the token is their credential, and kitty checks a
+        command that does carry a password only against that password's
+        list."""
         argv = [self.kitten, '@', '--to', self.listen_on]
-        if self.password_file:
+        env = dict(os.environ if self.env is None else self.env)
+        if password and self.password_file:
             argv += ['--password-file', self.password_file]
+        if not password:
+            for name in ('KITTY_RC_PASSWORD', 'KITTY_PUBLIC_KEY'):
+                env.pop(name, None)
         try:
             p = subprocess.run([*argv, *args], stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                               timeout=self.timeout, env=None if self.env is None else dict(self.env))
+                               timeout=self.timeout, env=env)
         except (OSError, subprocess.TimeoutExpired) as e:
             raise EmbedError(f'kitten @ {args[0]} failed: {e}') from None
         if p.returncode:
@@ -176,7 +185,7 @@ class Engine:
         args = ['embed', '--match', window.match, '--token', window.token, f'--size={int(cols)}x{int(rows)}']
         if cell_size:
             args.append(f'--cell-size={int(cell_size[0])}x{int(cell_size[1])}')
-        data = json.loads(self.run(*args))
+        data = json.loads(self.run(*args, password=False))
         window.cols, window.rows = int(data['cols']), int(data['rows'])
 
     def selection(self, window: EmbeddedWindow) -> str:

@@ -273,9 +273,10 @@ class EngineTests(unittest.TestCase):
         with open(self.answer, 'w') as f:
             json.dump({'id': 5, 'map': '/m', 'cols': 100, 'rows': 30}, f)
         w = kep.EmbeddedWindow(5, 'tok', '/m', 80, 24)
-        kep.Engine('unix:@x', self.kitten).resize(w, 100, 30)
+        kep.Engine('unix:@x', self.kitten, '/p/pw').resize(w, 100, 30)
         self.assertEqual((w.cols, w.rows), (100, 30))
-        self.assertEqual(self.args()[3:], ['embed', '--match', 'id:5', '--token', 'tok', '--size=100x30'])
+        self.assertEqual(self.args(), ['@', '--to', 'unix:@x', 'embed', '--match', 'id:5', '--token', 'tok',
+                                       '--size=100x30'])
 
     def test_failure_is_an_embed_error(self):
         with open(self.kitten, 'w') as f:
