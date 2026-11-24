@@ -10,6 +10,7 @@
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "kep_map.h"
@@ -104,8 +105,11 @@ static void test_map(const char *dir) {
     /* Size beyond the map's maximum is refused, not read. */
     w_begin(&w); w.h->cols = MC + 1; w_end(&w);
     CHECK(kep_map_read(m, &g, 0) == KEP_ERR_FORMAT);
-    /* A header that moves its own offsets is ignored: the layout from open stays. */
+    /* A header that moves its own offsets is ignored: the layout from open stays,
+     * both for an offset outside the file and for one inside it. */
     w_begin(&w); w.h->cols = 4; w.h->cells_offset = 0xfffffff0u; w_end(&w);
+    CHECK(kep_map_read(m, &g, 0) == KEP_OK && g.cells[0].ch == 'Z');
+    w_begin(&w); w.h->cells_offset = 256 + sizeof(kep_cell); w_end(&w);
     CHECK(kep_map_read(m, &g, 0) == KEP_OK && g.cells[0].ch == 'Z');
     w.h->cells_offset = 256;
 
@@ -124,6 +128,59 @@ static void test_map(const char *dir) {
     CHECK(!symlink(w.path, link));
     CHECK(!kep_map_open(link, &err) && err == KEP_ERR_IO);
     unlink(link);
+    munmap(w.base, w.size);
+    unlink(w.path);
+}
+
+/* A writer filling every cell of a frame with that frame's letter, half the
+ * cells, a pause, then the rest, with a gap between frames; the reader checks
+ * each frame it gets is one frame, never half of two. */
+typedef struct { writer *w; volatile int stop; } churn;
+
+static void *churn_run(void *arg) {
+    churn *c = arg;
+    writer *w = c->w;
+    for (uint32_t n = 1; !c->stop; n++) {
+        w_begin(w);
+        kep_cell *cells = w_cells(w);
+        const uint32_t ch = 'A' + n % 26;
+        for (int i = 0; i < MC * MR; i++) {
+            if (i == MC * MR / 2) for (volatile int k = 0; k < 2000; k++) {}
+            cells[i].ch = ch;
+        }
+        w_end(w);
+        usleep(20);
+    }
+    return NULL;
+}
+
+static void test_no_torn_frames(const char *dir) {
+    writer w; w_open(&w, dir);
+    char uniform[MC * MR + 1];
+    memset(uniform, 'A', MC * MR); uniform[MC * MR] = 0;
+    w_text(&w, MC, MR, uniform);
+    kep_map *m = kep_map_open(w.path, NULL);
+    kep_grid g = {0};
+    churn c = {&w, 0};
+    pthread_t t; pthread_create(&t, NULL, churn_run, &c);
+    int torn = 0, read = 0, letters = 0;
+    uint32_t last = 0;
+    struct timespec t0, now;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+    for (;;) {
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if ((now.tv_sec - t0.tv_sec) * 1000000000L + (now.tv_nsec - t0.tv_nsec) > 500000000L) break;
+        if (kep_map_read(m, &g, 1) != KEP_OK) continue;
+        read++;
+        if (g.cells[0].ch != last) { letters++; last = g.cells[0].ch; }
+        for (int j = 1; j < g.cols * g.rows; j++) if (g.cells[j].ch != g.cells[0].ch) { torn++; break; }
+    }
+    c.stop = 1;
+    pthread_join(t, NULL);
+    CHECK(read > 1000 && letters > 50);   /* frames really changed under the reader */
+    CHECK(torn == 0);
+    if (torn) fprintf(stderr, "%d of %d frames torn\n", torn, read);
+    kep_map_close(m);
     munmap(w.base, w.size);
     unlink(w.path);
 }
@@ -216,6 +273,7 @@ int main(void) {
     else snprintf(buf, sizeof buf, "%s", dir);
     if (!mkdtemp(buf)) { perror("mkdtemp"); return 2; }
     test_map(buf);
+    test_no_torn_frames(buf);
     test_encode();
     test_connection();
     rmdir(buf);
