@@ -156,8 +156,13 @@ class EngineTests(unittest.TestCase):
         for action, x, half in ((kep.PRESS, 0, 1), (kep.MOVE, 6, 1), (kep.RELEASE, 13, 0)):
             self.conn.send(self.win, ['mouse', str(action), str(kep.BUTTON_LEFT), str(x), str(y),
                                       str(x * 8 + (2 if half else 6)), str(y * 16 + 8), str(half)])
+        # Asked on the input connection, right after the release: it sees the release.
+        self.assertEqual(self.conn.selection(self.win).strip(), 'pick-this-word')
         wait_for(self.reader, lambda f: any(c.attrs & kep.ATTR_SELECTED for c in f.cells))
         self.assertEqual(ENGINE.selection(self.win).strip(), 'pick-this-word')
+        # The token guards it like any embed command.
+        with self.assertRaises(kep.EmbedError):
+            self.conn.selection(kep.EmbeddedWindow(self.win.id, '0' * 32, self.win.map, 1, 1))
 
     @unittest.skipUnless(os.environ.get('KEP_PASSWORD_FILE'), 'only under the Kilix config')
     def test_under_kilix_config_token_calls_need_no_password(self):

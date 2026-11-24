@@ -210,6 +210,34 @@ class InputTests(unittest.TestCase):
         self.assertEqual(cmds[1]['payload']['mods'], 1)
         self.assertEqual(cmds[2]['payload']['event'], ['bytes', 'G1tB/w=='])
 
+    def test_request_reads_the_answer_on_the_same_connection(self):
+        name = f'kep-answer-{os.getpid()}'
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind('\0' + name)
+        srv.listen(1)
+        got = bytearray()
+
+        def serve():
+            c, _ = srv.accept()
+            with c:
+                while control.SUFFIX not in got or got.count(control.SUFFIX) < 2:
+                    got.extend(c.recv(65536))
+                reply = {'ok': True, 'data': json.dumps({'id': 7, 'selection': 'picked'})}
+                c.sendall(control.PREFIX + json.dumps(reply).encode() + control.SUFFIX)
+                c.recv(1)
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        conn = kep.InputConnection(f'unix:@{name}')
+        win = kep.EmbeddedWindow(7, 'ab' * 16, '/x', 80, 24)
+        conn.send(win, ['mouse', '1', '0', '1', '1'])
+        self.assertEqual(conn.selection(win), 'picked')
+        conn.close()
+        srv.close()
+        first, second = bytes(got).split(control.SUFFIX)[:2]
+        self.assertIn(b'"mouse"', first)       # the release went first, on the same connection
+        body = json.loads(second[len(control.PREFIX):])
+        self.assertEqual((body['cmd'], body['no_response'], body['payload']['selection']), ('embed', False, True))
+
     def test_bad_events_refused(self):
         conn = kep.InputConnection('unix:@nobody-listens-here')
         win = kep.EmbeddedWindow(1, 't', '/x', 2, 2)

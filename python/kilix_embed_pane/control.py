@@ -26,7 +26,7 @@ BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE, BUTTON_BACK, BUTTON_FORWARD = 0, 1, 2,
 PRESS, RELEASE, MOVE = 0, 1, 2
 
 
-class EmbedError(Exception):
+class EmbedError(RuntimeError):
     pass
 
 
@@ -104,6 +104,50 @@ class InputConnection:
                 self.close()
                 if attempt:
                     raise EmbedError(f'Cannot reach the engine: {e}') from None
+
+    def request(self, cmd: str, payload: Mapping, max_bytes: int = 8 << 20):
+        """One command that answers, on this same connection: it reaches the
+        engine after every event sent before it. Returns the answer's data."""
+        data = encode_command(cmd, payload, no_response=False)
+        for attempt in (0, 1):
+            try:
+                if self.sock is None:
+                    self.sock = self._connect()
+                self.sock.sendall(data)
+                reply = bytearray()
+                while SUFFIX not in reply:
+                    chunk = self.sock.recv(65536)
+                    if not chunk:
+                        raise OSError('the engine closed the connection')
+                    reply.extend(chunk)
+                    if len(reply) > max_bytes:
+                        raise OSError('the answer is too long')
+                break
+            except OSError as e:
+                self.close()
+                if attempt:
+                    raise EmbedError(f'Cannot reach the engine: {e}') from None
+        start = reply.find(PREFIX)
+        end = reply.find(SUFFIX, start + 1)
+        if start < 0 or end < 0:
+            raise EmbedError('The engine answered in a form this does not read')
+        try:
+            answer = json.loads(bytes(reply[start + len(PREFIX):end]))
+        except ValueError:
+            raise EmbedError('The engine answered in a form this does not read') from None
+        if not isinstance(answer, dict) or not answer.get('ok'):
+            raise EmbedError(str(answer.get('error') if isinstance(answer, dict) else answer)[:400])
+        return answer.get('data')
+
+    def selection(self, window: EmbeddedWindow) -> str:
+        """The window's selected text, after every mouse event sent before."""
+        data = self.request('embed', {'match': window.match, 'token': window.token, 'size': '', 'cell_size': '',
+                                      'selection': True})
+        try:
+            text = json.loads(data)['selection']
+        except (TypeError, ValueError, KeyError):
+            raise EmbedError('This engine does not answer with the selection') from None
+        return text if isinstance(text, str) else ''
 
     def send_bytes(self, window: EmbeddedWindow, data: bytes) -> None:
         for at in range(0, len(data), 48 * 1024):

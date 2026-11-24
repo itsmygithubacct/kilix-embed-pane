@@ -30,7 +30,7 @@ MODE_BRACKETED_PASTE, MODE_FOCUS_TRACKING, MODE_ALTERNATE_SCREEN = 1, 2, 4
 MODE_APPLICATION_CURSOR, MODE_REVERSE_VIDEO = 8, 16
 
 
-class MapError(Exception):
+class MapError(RuntimeError):
     pass
 
 
