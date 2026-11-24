@@ -20,6 +20,10 @@ PREFIX, SUFFIX = b'\x1bP@kitty-cmd', b'\x1b\\'
 # Kilix's engine accepts a command from any older protocol version.
 PROTOCOL_VERSION = [0, 14, 0]
 MAX_EVENT_ARGS = 66
+# Mouse buttons as embed-input numbers them (the engine's GLFW numbers).
+BUTTON_LEFT, BUTTON_RIGHT, BUTTON_MIDDLE, BUTTON_BACK, BUTTON_FORWARD = 0, 1, 2, 3, 4
+# Mouse actions.
+PRESS, RELEASE, MOVE = 0, 1, 2
 
 
 class EmbedError(Exception):

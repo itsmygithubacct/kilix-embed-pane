@@ -24,6 +24,9 @@ class Writer:
             cursor_shape=0, cursor_visible=1, cursor_blink=1, cursor_focused=0, cursor_x=0, cursor_y=0,
             cursor_color=0x01000000, default_fg=0xdddddd, default_bg=0, history_rows=0, view_offset=0,
             combining_len=1, key_flags=0, reserved1=0, frames=0, child_pid=0, title_len=0, title=b'')
+        # As the engine does on attach: a header, no frame yet.
+        with open(path, 'r+b') as f:
+            f.write(self._pack())
 
     def _pack(self):
         f = self.fields

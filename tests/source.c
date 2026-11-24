@@ -61,8 +61,8 @@ static void test_map(const char *dir) {
     kep_map *m = kep_map_open(w.path, &err);
     CHECK(m && err == KEP_OK);
     kep_grid g = {0};
-    /* No frame yet: rows == 0 is out of range. */
-    CHECK(kep_map_read(m, &g, 0) == KEP_ERR_FORMAT);
+    /* No frame yet. */
+    CHECK(kep_map_read(m, &g, 0) == KEP_UNCHANGED && kep_map_read(m, &g, 1) == KEP_UNCHANGED);
 
     w_text(&w, 4, 2, "abcdefgh");
     CHECK(kep_map_read(m, &g, 0) == KEP_OK);

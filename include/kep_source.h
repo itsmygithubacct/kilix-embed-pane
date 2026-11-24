@@ -42,7 +42,7 @@ void kep_map_close(kep_map *m);
 /* Copies the latest frame into `grid`. The grid's arrays belong to the map
  * and stay valid until the next kep_map_read or kep_map_close; the window
  * writing the map never changes them. KEP_UNCHANGED when no frame was
- * written since the last read, unless `force`. When frames were missed,
+ * written since the last read, unless `force`; always before the first frame. When frames were missed,
  * every row is marked dirty. */
 int kep_map_read(kep_map *m, kep_grid *grid, int force);
 
@@ -74,7 +74,11 @@ int kep_rc_input(kep_rc *rc, unsigned window_id, const char *token, unsigned mod
 /* Conveniences over kep_rc_input. */
 int kep_rc_text(kep_rc *rc, unsigned window_id, const char *token, const char *utf8);
 int kep_rc_bytes(kep_rc *rc, unsigned window_id, const char *token, const void *data, size_t len);
-/* action 0 press, 1 release, 2 move; cell and pixel-in-pane coordinates. */
+enum { KEP_PRESS = 0, KEP_RELEASE = 1, KEP_MOVE = 2 };
+/* Buttons as the engine numbers them (GLFW), not as X11 or xterm do. */
+enum { KEP_BUTTON_LEFT = 0, KEP_BUTTON_RIGHT = 1, KEP_BUTTON_MIDDLE = 2, KEP_BUTTON_BACK = 3, KEP_BUTTON_FORWARD = 4 };
+/* action KEP_PRESS/RELEASE/MOVE; button KEP_BUTTON_*; cell and pixel-in-pane
+ * coordinates; left_half: the pointer is in the left half of its cell. */
 int kep_rc_mouse(kep_rc *rc, unsigned window_id, const char *token, unsigned mods, int action, int button,
                  int cell_x, int cell_y, int px, int py, int left_half);
 /* lines > 0 scrolls back (wheel up). */

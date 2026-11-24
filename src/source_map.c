@@ -91,6 +91,11 @@ int kep_map_read(kep_map *m, kep_grid *grid, int force) {
         if (seq & 1) continue;
         kep_map_header h;
         memcpy(&h, m->base, sizeof h);
+        if (h.frames == 0) {   /* attached, no frame written yet */
+            __atomic_thread_fence(__ATOMIC_ACQUIRE);
+            if (load_seq(m) == seq) return KEP_UNCHANGED;
+            continue;
+        }
         if (!force && m->have_frame && h.frames == m->last_frames) {
             __atomic_thread_fence(__ATOMIC_ACQUIRE);
             if (load_seq(m) == seq) return KEP_UNCHANGED;

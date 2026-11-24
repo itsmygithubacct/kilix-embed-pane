@@ -96,6 +96,12 @@ class MapTests(unittest.TestCase):
         with self.assertRaises(kep.MapError):
             kep.MapReader(self.path).read(force=True)
 
+    def test_no_frame_yet(self):
+        r = kep.MapReader(self.path)
+        self.assertIsNone(r.read())
+        self.assertIsNone(r.read(force=True))
+        r.close()
+
     def test_symlink_refused(self):
         self.frame('ab')
         link = os.path.join(self.dir.name, 'link')

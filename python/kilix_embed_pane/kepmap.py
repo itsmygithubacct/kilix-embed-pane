@@ -105,6 +105,10 @@ class MapReader:
             if seq & 1:
                 continue
             h = self._header()
+            if h['frames'] == 0:  # attached, no frame written yet
+                if self._seq() == seq:
+                    return None
+                continue
             if not force and h['frames'] == self.last_frames:
                 if self._seq() == seq:
                     return None

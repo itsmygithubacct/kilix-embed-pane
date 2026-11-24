@@ -18,6 +18,7 @@ from .kepmap import (
     ATTR_WIDE, ATTR_WIDE_TAIL, COLOR_SAME_AS_FG, MODE_ALTERNATE_SCREEN, MODE_APPLICATION_CURSOR,
     MODE_BRACKETED_PASTE, MODE_FOCUS_TRACKING, MODE_REVERSE_VIDEO, Cell, Frame, MapError, MapReader,
 )
+from .control import BUTTON_BACK, BUTTON_FORWARD, BUTTON_LEFT, BUTTON_MIDDLE, BUTTON_RIGHT, MOVE, PRESS, RELEASE
 from .control import EmbedError, EmbeddedWindow, Engine, InputConnection, encode_command
 from .records import cell_text, to_records
 
@@ -25,6 +26,7 @@ __all__ = [
     'ATTR_BLINK', 'ATTR_BOLD', 'ATTR_DIM', 'ATTR_INVISIBLE', 'ATTR_ITALIC', 'ATTR_OVERLINE', 'ATTR_SELECTED',
     'ATTR_STRIKE', 'ATTR_WIDE', 'ATTR_WIDE_TAIL', 'COLOR_SAME_AS_FG', 'MODE_ALTERNATE_SCREEN',
     'MODE_APPLICATION_CURSOR', 'MODE_BRACKETED_PASTE', 'MODE_FOCUS_TRACKING', 'MODE_REVERSE_VIDEO',
+    'BUTTON_BACK', 'BUTTON_FORWARD', 'BUTTON_LEFT', 'BUTTON_MIDDLE', 'BUTTON_RIGHT', 'MOVE', 'PRESS', 'RELEASE',
     'Cell', 'EmbedError', 'EmbeddedWindow', 'Engine', 'Frame', 'InputConnection', 'MapError', 'MapReader',
     'cell_text', 'encode_command', 'to_records',
 ]
